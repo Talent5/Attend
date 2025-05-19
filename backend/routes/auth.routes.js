@@ -3,6 +3,7 @@ const router = express.Router();
 const jwt = require('jsonwebtoken');
 const Employee = require('../models/employee.model');
 const { authenticate, isAdmin, isSuperAdmin } = require('../middlewares/auth.middleware');
+const { validateEmail, validateRegistration } = require('../middlewares/validation.middleware');
 
 // Login route
 router.post('/login', async (req, res) => {
@@ -120,7 +121,7 @@ router.post('/admin/login', async (req, res) => {
 });
 
 // Register route
-router.post('/register', async (req, res) => {
+router.post('/register', validateRegistration, validateEmail, async (req, res) => {
   try {
     const { name, email, password, department, position } = req.body;
     
@@ -256,7 +257,7 @@ router.post('/first-time-password-change', authenticate, async (req, res) => {
 });
 
 // Create Super Admin (Only first-time setup or by existing super admin)
-router.post('/create-super-admin', async (req, res) => {
+router.post('/create-super-admin', validateEmail, async (req, res) => {
   try {
     const { name, email, password, secretKey } = req.body;
 
@@ -314,7 +315,7 @@ router.post('/create-super-admin', async (req, res) => {
 });
 
 // Additional route for super admin to create regular admins
-router.post('/create-admin', authenticate, isSuperAdmin, async (req, res) => {
+router.post('/create-admin', authenticate, isSuperAdmin, validateEmail, async (req, res) => {
   try {
     const { name, email, password, department, position } = req.body;
     

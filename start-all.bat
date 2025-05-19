@@ -35,12 +35,14 @@ SET REACT_APP_API_URL=http://%IP%:5000/api
 SET REACT_APP_SERVER_IP=%IP%
 SET REACT_APP_FRONTEND_PORT=3000
 SET REACT_APP_BACKEND_PORT=5000
+SET REACT_APP_QR_SERVICE_URL=http://%IP%:5005
 
 echo IP Address detected: %IP%
 echo.
 echo Mobile devices should connect using:
 echo Frontend: http://%IP%:3000
 echo Backend API: http://%IP%:5000/api
+echo Python QR Scanner: http://%IP%:5005
 echo.
 echo Make sure that:
 echo 1. Your phone and computer are on the same WiFi network
@@ -58,6 +60,7 @@ echo const defaultConfig = { >> frontend\temp.js
 echo   serverIP: "%IP%", >> frontend\temp.js
 echo   frontendPort: 3000, >> frontend\temp.js
 echo   backendPort: 5000, >> frontend\temp.js
+echo   qrServicePort: 5005, >> frontend\temp.js
 echo   useHttps: false >> frontend\temp.js
 echo }; >> frontend\temp.js
 echo export default defaultConfig; >> frontend\temp.js
@@ -65,6 +68,22 @@ echo export default defaultConfig; >> frontend\temp.js
 copy /Y frontend\temp.js %CONFIG_FILE% > nul
 echo Updated frontend network configuration with IP: %IP%
 echo.
+
+REM Check for Python installation
+echo Checking for Python installation...
+python --version >nul 2>&1
+if %ERRORLEVEL% NEQ 0 (
+    echo WARNING: Python is not installed or not in the PATH.
+    echo The QR scanner service will not be available.
+    echo Please install Python from https://www.python.org/downloads/
+    echo.
+) else (    REM Start the Python QR Scanner service in a new window
+    echo Starting Python QR Scanner service...
+    start "Attend QR Scanner" cmd /c "cd backend && python qr_scanner_service_simple.py"
+    
+    REM Small delay to let QR scanner start
+    timeout /t 3 /nobreak > nul
+)
 
 REM Start the backend in a new window
 echo Starting backend server...
@@ -78,9 +97,10 @@ echo Starting frontend server...
 start "Attend Frontend" cmd /c "cd frontend && npm start"
 
 echo.
-echo Both servers started successfully!
+echo All servers started successfully!
 echo Frontend server is running at http://%IP%:3000
 echo Backend server is running at http://%IP%:5000
+echo Python QR Scanner is running at http://%IP%:5005
 echo.
 echo To stop the servers, close their respective command windows or press Ctrl+C in each window.
 echo ======================================================

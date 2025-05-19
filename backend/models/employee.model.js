@@ -6,14 +6,13 @@ const EmployeeSchema = new mongoose.Schema({
     type: String,
     required: true,
     trim: true
-  },
-  email: {
+  },  email: {
     type: String,
     required: true,
     unique: true,
     trim: true,
     lowercase: true,
-    match: [/^\w+([.-]?\w+)*@\w+([.-]?\w+)*(\.\w{2,3})+$/, 'Please enter a valid email address']
+    match: [/^([\w-\.]+@([\w-]+\.)+[\w-]{2,4})?$/, 'Please enter a valid email address']
   },
   password: {
     type: String,

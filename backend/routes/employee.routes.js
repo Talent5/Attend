@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const Employee = require('../models/employee.model');
 const { authenticate, isAdmin } = require('../middlewares/auth.middleware');
+const { validateEmail } = require('../middlewares/validation.middleware');
 
 // Get all employees (admin only)
 router.get('/', authenticate, isAdmin, async (req, res) => {
@@ -69,7 +70,7 @@ router.get('/:id', authenticate, async (req, res) => {
 });
 
 // Create new employee (admin only)
-router.post('/', authenticate, isAdmin, async (req, res) => {
+router.post('/', authenticate, isAdmin, validateEmail, async (req, res) => {
   try {
     const { email } = req.body;
     
@@ -139,6 +140,25 @@ router.put('/:id', authenticate, async (req, res) => {
     // Regular employees can only update their own non-sensitive info
     if (req.employee.role !== 'admin' && req.employee.role !== 'super_admin' && req.employee._id.toString() !== req.params.id) {
       return res.status(403).json({ message: 'Access denied' });
+    }
+    
+    // If email is being updated, validate it
+    if (req.body.email) {
+      // Check if email is well-formed
+      const emailValidator = require('email-validator');
+      if (!emailValidator.validate(req.body.email)) {
+        return res.status(400).json({ message: 'Please enter a valid email address' });
+      }
+      
+      // Check if email is already in use by another employee
+      const existingEmployee = await Employee.findOne({
+        email: req.body.email,
+        _id: { $ne: req.params.id } // Exclude current employee
+      });
+      
+      if (existingEmployee) {
+        return res.status(400).json({ message: 'This email is already in use by another employee' });
+      }
     }
     
     // If not admin or super_admin, restrict which fields can be updated
