@@ -6,7 +6,7 @@
   "scripts": {
     "start": "node server.js",
     "start-https": "set USE_HTTPS=true&&node server.js",
-    "dev": "nodemon server.js",
+    "dev": "set HOST=0.0.0.0&&nodemon server.js",
     "dev-https": "set USE_HTTPS=true&&nodemon server.js",
     "test": "jest"
   },

@@ -46,7 +46,31 @@ if (useHttps && fs.existsSync(path.join(certsPath, 'cert.pem')) && fs.existsSync
 
 // Basic CORS configuration - simplified to avoid potential issues
 const corsOptions = {
-  origin: true, // Allow all origins in development
+  origin: function(origin, callback) {
+    // Allow requests with no origin (like mobile apps or curl requests)
+    if (!origin) return callback(null, true);
+    
+    // List of allowed origins - add your phone's IP if needed
+    const allowedOrigins = [
+      'http://localhost:3000',
+      'http://192.168.2.122:3000',
+      'http://192.168.137.160:3000',
+      'capacitor://localhost',
+      'ionic://localhost',
+      'http://localhost',
+      'http://localhost:8080',
+      'http://localhost:8100'
+    ];
+    
+    console.log('Request origin:', origin);
+    
+    if (allowedOrigins.indexOf(origin) !== -1 || !origin) {
+      callback(null, true);
+    } else {
+      console.log('Blocked by CORS:', origin);
+      callback(null, true); // Temporarily allow all origins for testing
+    }
+  },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
   allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'Origin', 'X-Requested-With', 'X-Mobile-Device'],
@@ -64,26 +88,60 @@ const io = socketIo(server, {
 // Rate limiting middleware
 const apiLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100 // 100 requests per IP
+  max: process.env.NODE_ENV === 'development' ? 1000 : 100, // Higher limit for development
+  message: {
+    error: 'Too many requests from this IP, please try again later.',
+    retryAfter: Math.ceil(15 * 60 * 1000 / 1000) // retry after in seconds
+  },
+  standardHeaders: true, // Return rate limit info in the `RateLimit-*` headers
+  legacyHeaders: false, // Disable the `X-RateLimit-*` headers
+});
+
+// More lenient rate limiting for auth endpoints
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: process.env.NODE_ENV === 'development' ? 200 : 20, // More attempts for auth
+  message: {
+    error: 'Too many authentication attempts, please try again later.',
+    retryAfter: Math.ceil(15 * 60 * 1000 / 1000)
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+// Very lenient rate limiting for QR code scanning
+const qrLimiter = rateLimit({
+  windowMs: 5 * 60 * 1000, // 5 minutes
+  max: process.env.NODE_ENV === 'development' ? 500 : 50, // More scans allowed
+  message: {
+    error: 'Too many QR code scans, please wait a moment.',
+    retryAfter: Math.ceil(5 * 60 * 1000 / 1000)
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
 });
 
 // Basic middleware
 app.use(cors(corsOptions));
 app.use(express.json());
-app.use('/api', apiLimiter);
 
-// Simple logger
+// Enhanced logging middleware
 app.use((req, res, next) => {
-  console.log(`${req.method} ${req.path} - Origin: ${req.headers.origin || 'No origin'}`);
+  const clientIP = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
+  console.log(`[${new Date().toISOString()}] ${req.method} ${req.path}`);
+  console.log('Client IP:', clientIP);
+  console.log('Headers:', JSON.stringify(req.headers, null, 2));
+  console.log('Origin:', req.headers.origin || 'No origin');
+  console.log('User-Agent:', req.headers['user-agent'] || 'No user agent');
   next();
 });
 
-// Routes - using standard Express routing
-app.use('/api/auth', authRoutes);
-app.use('/api/employees', employeeRoutes);
-app.use('/api/attendance', attendanceRoutes);
-app.use('/api/qrcodes', qrCodeRoutes);
-app.use('/api/locations', locationRoutes);
+// Routes - using standard Express routing with specific rate limiters
+app.use('/api/auth', authLimiter, authRoutes);
+app.use('/api/employees', apiLimiter, employeeRoutes);
+app.use('/api/attendance', qrLimiter, attendanceRoutes);
+app.use('/api/qrcodes', qrLimiter, qrCodeRoutes);
+app.use('/api/locations', apiLimiter, locationRoutes);
 
 // Import and use the network routes with detailed diagnostics
 const networkRoutes = require('./routes/network.routes');
@@ -92,6 +150,16 @@ app.use('/api', networkRoutes);
 // Root route
 app.get('/', (req, res) => {
   res.json({ message: 'Welcome to Attend - QR Code Attendance Tracking API' });
+});
+
+// Health check endpoint
+app.get('/api/health', (req, res) => {
+  res.json({ status: 'ok', timestamp: new Date().toISOString() });
+});
+
+// Handle HEAD requests to /api
+app.head('/api', (req, res) => {
+  res.status(200).end();
 });
 
 // Socket.io connection
@@ -119,7 +187,6 @@ mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/attend-db
       server.listen(port, '0.0.0.0')
         .on('error', (err) => {
           if (err.code === 'EADDRINUSE') {
-            // Port is in use, try the next one
             console.warn(`Port ${port} is already in use. Trying port ${port + 1}...`);
             startServer(port + 1);
           } else {
@@ -133,7 +200,7 @@ mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/attend-db
           const protocol = useHttps ? 'https' : 'http';
           console.log(`Access locally via: ${protocol}://localhost:${actualPort}`);
           
-          // Display local IP addresses
+          // Display local IP addresses with more details
           try {
             const { networkInterfaces } = require('os');
             const nets = networkInterfaces();
@@ -141,18 +208,37 @@ mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/attend-db
             
             for (const name of Object.keys(nets)) {
               for (const net of nets[name]) {
+                // Only get IPv4 addresses that are not internal
                 if (net.family === 'IPv4' && !net.internal) {
-                  localIPs.push(net.address);
+                  localIPs.push({
+                    interface: name,
+                    address: net.address,
+                    netmask: net.netmask,
+                    mac: net.mac
+                  });
                 }
               }
             }
             
             if (localIPs.length > 0) {
-              console.log('Available on local network at:');
+              console.log('\nAvailable on local network at:');
               localIPs.forEach(ip => {
-                console.log(`  - ${protocol}://${ip}:${actualPort}`);
+                console.log(`  - ${protocol}://${ip.address}:${actualPort} (${ip.interface})`);
+              });
+              console.log('\nNetwork Configuration:');
+              localIPs.forEach(ip => {
+                console.log(`  Interface: ${ip.interface}`);
+                console.log(`  IP Address: ${ip.address}`);
+                console.log(`  Netmask: ${ip.netmask}`);
+                console.log(`  MAC: ${ip.mac}`);
               });
               console.log('\nMobile devices can connect to any of these addresses.');
+              console.log('Make sure your phone is on the same network as this computer.');
+              console.log('If still having issues:');
+              console.log('1. Check if you can ping the server IP from your phone');
+              console.log('2. Verify your phone is on the same WiFi network');
+              console.log('3. Check if your firewall is blocking connections');
+              console.log('4. Try disabling mobile data on your phone');
             }
           } catch (err) {
             console.log('Could not determine local IP addresses:', err.message);

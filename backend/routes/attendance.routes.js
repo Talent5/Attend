@@ -346,18 +346,6 @@ router.get('/stats/summary', authenticate, isAdmin, async (req, res) => {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     
-    // Count total check-ins for the filtered period
-    const checkIns = await Attendance.countDocuments({
-      ...baseFilter,
-      checkIn: { $ne: null }
-    });
-    
-    // Count total check-outs for the filtered period
-    const checkOuts = await Attendance.countDocuments({
-      ...baseFilter,
-      checkOut: { $ne: null }
-    });
-    
     // Get all distinct employees who have attendance records
     const activeEmployeeIds = await Attendance.distinct('employeeId', baseFilter);
     
@@ -369,102 +357,124 @@ router.get('/stats/summary', authenticate, isAdmin, async (req, res) => {
       employeeFilter.department = department;
     }
     
-    console.log('Employee filter:', employeeFilter);
     const totalEmployees = await Employee.countDocuments(employeeFilter);
-    console.log('Total employees count:', totalEmployees);
     
-    // Get on-time, late, and absent counts
-    // For simplicity, we'll consider before 9 AM as on-time, after 9 AM as late
-    const onTimeHour = 9; // 9 AM
-
-    // Count on-time and late check-ins
-    const onTime = await Attendance.countDocuments({
+    // Get today's attendance records
+    const todayFilter = {
       ...baseFilter,
+      date: { $gte: today }
+    };
+    
+    // Count check-ins and check-outs for today
+    const todayCheckIns = await Attendance.countDocuments({
+      ...todayFilter,
+      checkIn: { $exists: true }
+    });
+    
+    const todayCheckOuts = await Attendance.countDocuments({
+      ...todayFilter,
+      checkOut: { $exists: true }
+    });
+    
+    // Get on-time and late counts for today
+    const onTime = await Attendance.countDocuments({
+      ...todayFilter,
       status: 'onTime'
     });
     
     const late = await Attendance.countDocuments({
-      ...baseFilter,
+      ...todayFilter,
       status: 'late'
     });
     
-    // Calculate absent (this is an approximation - will need adjustment for your specific rules)
-    // For simplicity, we'll consider anyone who doesn't have a check-in for the period as absent
+    // Calculate absent (total active employees minus those who checked in)
     const absent = Math.max(0, totalEmployees - (onTime + late));
     
-    // Get total attendance records
-    const totalAttendance = await Attendance.countDocuments(baseFilter);
+    // Get attendance by date for the selected date range
+    const startDateObj = startDate ? new Date(startDate) : new Date(today);
+    startDateObj.setHours(0, 0, 0, 0);
     
-    // Get attendance by date 
-    const last7Days = new Date();
-    last7Days.setDate(last7Days.getDate() - 7);
+    const endDateObj = endDate ? new Date(endDate) : new Date(today);
+    endDateObj.setHours(23, 59, 59, 999);
     
-    const dailyStatsFilter = { ...baseFilter };
-    if (!dailyStatsFilter.date) {
-      dailyStatsFilter.date = { $gte: last7Days };
-    }
-    
+    // Aggregate daily stats
     const dailyStats = await Attendance.aggregate([
       {
-        $match: dailyStatsFilter
+        $match: {
+          date: {
+            $gte: startDateObj,
+            $lte: endDateObj
+          },
+          ...(employeeId && { employeeId: employeeId }),
+          ...(location && { location: location }),
+          ...(department && { department: department })
+        }
       },
       {
         $group: {
           _id: {
-            $dateToString: { format: '%Y-%m-%d', date: '$date' }
+            date: { $dateToString: { format: "%Y-%m-%d", date: "$date" } }
           },
-          count: { $sum: 1 }
+          checkIns: {
+            $sum: { $cond: [{ $ifNull: ["$checkIn", false] }, 1, 0] }
+          },
+          checkOuts: {
+            $sum: { $cond: [{ $ifNull: ["$checkOut", false] }, 1, 0] }
+          },
+          onTime: {
+            $sum: { $cond: [{ $eq: ["$status", "onTime"] }, 1, 0] }
+          },
+          late: {
+            $sum: { $cond: [{ $eq: ["$status", "late"] }, 1, 0] }
+          }
         }
       },
-      { $sort: { _id: 1 } }
+      {
+        $sort: { "_id.date": 1 }
+      }
     ]);
     
-    // Get attendance by location
-    const locationStatsFilter = { ...baseFilter };
-    if (!locationStatsFilter.date) {
-      locationStatsFilter.date = { $gte: last7Days };
-    }
-    
+    // Get location stats
     const locationStats = await Attendance.aggregate([
       {
-        $match: locationStatsFilter
+        $match: {
+          date: {
+            $gte: startDateObj,
+            $lte: endDateObj
+          },
+          ...(employeeId && { employeeId: employeeId }),
+          ...(department && { department: department })
+        }
       },
       {
         $group: {
-          // Group by locationName if available, otherwise fall back to location
-          _id: { $ifNull: ['$locationName', '$location'] },
+          _id: "$location",
           count: { $sum: 1 }
         }
       },
-      { $sort: { count: -1 } },
-      { $limit: 5 }
+      {
+        $sort: { count: -1 }
+      }
     ]);
     
-    // If we have no employees yet, set at least one for testing
-    const finalTotalEmployees = totalEmployees > 0 ? totalEmployees : 1;
+    // Calculate total attendance
+    const totalAttendance = await Attendance.countDocuments(baseFilter);
     
-    // Return all statistics
-    const stats = {
+    res.json({
       onTime,
       late,
       absent,
-      totalEmployees: finalTotalEmployees,
-      checkIns,
-      checkOuts,
+      totalEmployees,
+      checkIns: todayCheckIns,
+      checkOuts: todayCheckOuts,
       totalAttendance,
       activeEmployees: activeEmployeeIds.length,
-      todayAttendance: await Attendance.countDocuments({
-        date: { $gte: today },
-        checkIn: { $ne: null }
-      }),
+      todayAttendance: todayCheckIns,
       dailyStats,
       locationStats
-    };
-    
-    console.log('Returning attendance stats:', stats);
-    res.json(stats);
+    });
   } catch (error) {
-    console.error('Get attendance stats error:', error);
+    console.error('Get attendance statistics error:', error);
     res.status(500).json({ message: 'Server error while fetching attendance statistics' });
   }
 });
@@ -491,13 +501,28 @@ router.get('/export', authenticate, isAdmin, async (req, res) => {
     if (employeeId) filter.employeeId = employeeId;
     if (location) filter.location = { $regex: location, $options: 'i' };
     
-    // Get attendance records and populate employee details
+    // Get attendance records and populate employee details with more fields
     const attendanceRecords = await Attendance.find(filter)
-      .populate('employeeId', 'name employeeId email department')
+      .populate('employeeId', 'name employeeId email department position phoneNumber')
       .sort({ date: -1, checkIn: -1 });
     
-    // Convert to CSV format
-    const fields = ['Employee ID', 'Name', 'Date', 'Check In', 'Check Out', 'Duration', 'Location', 'Status'];
+    // Convert to CSV format with enhanced fields
+    const fields = [
+      'Employee ID',
+      'Name',
+      'Email',
+      'Department',
+      'Position',
+      'Phone Number',
+      'Date',
+      'Check In',
+      'Check Out',
+      'Duration (hours)',
+      'Duration (minutes)',
+      'Location',
+      'Status',
+      'Notes'
+    ];
     let csv = fields.join(',') + '\r\n';
     
     attendanceRecords.forEach(record => {
@@ -508,18 +533,23 @@ router.get('/export', authenticate, isAdmin, async (req, res) => {
       // Format duration
       const durationHrs = Math.floor(record.duration / 60);
       const durationMins = record.duration % 60;
-      const durationStr = record.checkOut ? `${durationHrs}h ${durationMins}m` : 'N/A';
       
       const row = [
-        record.employeeId.employeeId,
-        record.employeeId.name,
+        record.employeeId?.employeeId || 'N/A',
+        record.employeeId?.name || 'N/A',
+        record.employeeId?.email || 'N/A',
+        record.employeeId?.department || 'N/A',
+        record.employeeId?.position || 'N/A',
+        record.employeeId?.phoneNumber || 'N/A',
         dateStr,
         checkInTime,
         checkOutTime,
-        durationStr,
-        record.location,
-        record.status
-      ];
+        durationHrs,
+        durationMins,
+        record.location || 'N/A',
+        record.status || 'N/A',
+        record.notes || 'N/A'
+      ].map(field => `"${field}"`); // Wrap fields in quotes to handle commas in text
       
       csv += row.join(',') + '\r\n';
     });
