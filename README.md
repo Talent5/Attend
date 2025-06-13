@@ -29,6 +29,8 @@ Attend is a full-stack web application designed to streamline attendance trackin
 
 ### Technical Features
 - **Real-time Updates**: Socket.io integration for live attendance updates
+- **Network Auto-Detection**: Smart IP address detection for seamless connectivity across different networks
+- **Cross-Network Compatibility**: Works across different devices on the same network with minimal configuration
 - **Responsive UI**: Works on desktop and mobile devices
 - **Secure Authentication**: JWT-based authentication with role-based access control
 - **Data Export**: Export attendance data to CSV for further analysis

@@ -196,7 +196,10 @@ mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/attend-db
         })
         .on('listening', () => {
           const actualPort = server.address().port;
-          console.log(`Server running on port ${actualPort}`);
+          console.log(`\n========================================================`);
+          console.log(`   ATTEND BACKEND SERVER RUNNING`);
+          console.log(`========================================================`);
+          console.log(`Server is running on port ${actualPort}`);
           const protocol = useHttps ? 'https' : 'http';
           console.log(`Access locally via: ${protocol}://localhost:${actualPort}`);
           
@@ -221,24 +224,32 @@ mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/attend-db
             }
             
             if (localIPs.length > 0) {
-              console.log('\nAvailable on local network at:');
+              console.log(`\nAVAILABLE IP ADDRESSES FOR CONNECTION:`);
+              console.log(`----------------------------------------`);
               localIPs.forEach(ip => {
-                console.log(`  - ${protocol}://${ip.address}:${actualPort} (${ip.interface})`);
+                console.log(`  • ${protocol}://${ip.address}:${actualPort} (${ip.interface})`);
               });
-              console.log('\nNetwork Configuration:');
-              localIPs.forEach(ip => {
-                console.log(`  Interface: ${ip.interface}`);
+              
+              console.log(`\nDETAILED NETWORK CONFIGURATION:`);
+              console.log(`----------------------------------------`);
+              localIPs.forEach((ip, index) => {
+                if (index > 0) console.log('');
+                console.log(`  Interface #${index + 1}: ${ip.interface}`);
                 console.log(`  IP Address: ${ip.address}`);
                 console.log(`  Netmask: ${ip.netmask}`);
                 console.log(`  MAC: ${ip.mac}`);
               });
-              console.log('\nMobile devices can connect to any of these addresses.');
-              console.log('Make sure your phone is on the same network as this computer.');
-              console.log('If still having issues:');
-              console.log('1. Check if you can ping the server IP from your phone');
-              console.log('2. Verify your phone is on the same WiFi network');
-              console.log('3. Check if your firewall is blocking connections');
-              console.log('4. Try disabling mobile data on your phone');
+              
+              console.log(`\nCONNECTION INSTRUCTIONS:`);
+              console.log(`----------------------------------------`);
+              console.log(`• FRONTEND CONFIG: The frontend is set to use AUTO-DETECT mode`);
+              console.log(`• MOBILE DEVICES: Connect to any of the above IP addresses`);
+              console.log(`• SAME NETWORK: Ensure all devices are on the same WiFi network`);
+              console.log(`• TROUBLESHOOTING:`);
+              console.log(`  1. Make sure Windows Firewall allows connections on port ${actualPort}`);
+              console.log(`  2. On mobile devices, disable mobile data and use only WiFi`);
+              console.log(`  3. If problems persist, try using the NetworkDiagnostics tool in the app`);
+              console.log(`========================================================`);
             }
           } catch (err) {
             console.log('Could not determine local IP addresses:', err.message);
