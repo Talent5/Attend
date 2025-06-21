@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const Attendance = require('../models/attendance.model');
 const QRCode = require('../models/qrcode.model');
+const Location = require('../models/location.model');
 const { authenticate, isAdmin } = require('../middlewares/auth.middleware');
 
 // Log attendance (scan QR code)
@@ -110,10 +111,22 @@ router.post('/', authenticate, async (req, res) => {  try {
       
       // Determine if this is an on-time or late check-in (e.g., after 9 AM)
       const onTimeHour = 9; // 9 AM
-      let status = 'onTime';
-      
+      let status = 'onTime';      
       if (now.getHours() >= onTimeHour) {
         status = 'late';
+      }
+      
+      // Resolve location name from QR code
+      let resolvedLocationName = location; // Use provided location name if available
+      if (!resolvedLocationName && qrCode.location) {
+        try {
+          // Populate the location to get the name
+          const populatedQRCode = await QRCode.findById(qrCode._id).populate('location');
+          resolvedLocationName = populatedQRCode.location ? populatedQRCode.location.name : 'Unknown Location';
+        } catch (error) {
+          console.error('Error resolving location name:', error);
+          resolvedLocationName = 'Unknown Location';
+        }
       }
       
       // Create a new attendance record for today
@@ -128,7 +141,7 @@ router.post('/', authenticate, async (req, res) => {  try {
         coordinates,
         device,
         status,
-        locationName: location,
+        locationName: resolvedLocationName || 'Office',
         ipAddress: req.ip
       });
       
@@ -142,13 +155,12 @@ router.post('/', authenticate, async (req, res) => {  try {
         
         io.emit('attendance:recorded', populatedAttendance);
       }
-      
-      res.status(201).json({
+        res.status(201).json({
         message: 'Check-in recorded successfully',
         timestamp: attendance.checkIn,
         type: 'check-in',
-        location: location || (qrCode.location && qrCode.location.name) || 'Unknown location'
-      });    } else if (attendanceType === 'check-out') {
+        location: resolvedLocationName || 'Office'
+      });} else if (attendanceType === 'check-out') {
       // Find the most recent check-in record for this employee TODAY without a check-out
       const checkInRecord = await Attendance.findOne({
         employeeId,
@@ -164,14 +176,29 @@ router.post('/', authenticate, async (req, res) => {  try {
       const checkInTime = new Date(checkInRecord.checkIn);
       const durationMs = now.getTime() - checkInTime.getTime();
       const durationMinutes = Math.round(durationMs / (1000 * 60));
-      
-      // Update the existing record with check-out time and duration
+        // Update the existing record with check-out time and duration
       checkInRecord.checkOut = now;
       checkInRecord.duration = durationMinutes;
       
+      // Resolve location name for check-out
+      let checkoutLocationName = location; // Use provided location name if available
+      if (!checkoutLocationName && qrCode.location) {
+        try {
+          // Populate the location to get the name
+          const populatedQRCode = await QRCode.findById(qrCode._id).populate('location');
+          checkoutLocationName = populatedQRCode.location ? populatedQRCode.location.name : 'Unknown Location';
+        } catch (error) {
+          console.error('Error resolving location name for checkout:', error);
+          checkoutLocationName = checkInRecord.locationName || 'Unknown Location';
+        }
+      } else if (!checkoutLocationName) {
+        // Fallback to existing location name from check-in
+        checkoutLocationName = checkInRecord.locationName || 'Office';
+      }
+      
       // If location or coordinates provided, update them as well
-      if (location) {
-        checkInRecord.locationName = location;
+      if (checkoutLocationName) {
+        checkInRecord.locationName = checkoutLocationName;
       }
       
       if (coordinates) {
@@ -199,8 +226,8 @@ router.post('/', authenticate, async (req, res) => {  try {
         timestamp: checkInRecord.checkOut,
         duration: durationMinutes,
         type: 'check-out',
-        location: location || (qrCode.location && qrCode.location.name) || 'Unknown location'
-      });    } else {
+        location: checkoutLocationName
+      });} else {
       return res.status(400).json({ 
         message: `Invalid attendance type '${attendanceType}'. Must be check-in or check-out.`,
         detectedType: attendanceType
@@ -339,11 +366,36 @@ router.get('/me', authenticate, async (req, res) => {
         $lt: new Date(today.getTime() + 24 * 60 * 60 * 1000)
       },
       checkIn: { $ne: null }
-    });
-      // Transform the attendance data to include both check-in and check-out entries
+    });    // Transform the attendance data to include both check-in and check-out entries
     const transformedRecords = [];
 
-    attendanceRecords.forEach(record => {
+    // Helper function to resolve location name
+    const getLocationName = async (locationRef, locationName) => {
+      // If locationName is already provided and is not an ObjectId, use it
+      if (locationName && typeof locationName === 'string' && 
+          !locationName.match(/^[0-9a-fA-F]{24}$/)) {
+        return locationName;
+      }
+      
+      // If location is an ObjectId, fetch the location name
+      if (locationRef && typeof locationRef === 'string' && 
+          locationRef.match(/^[0-9a-fA-F]{24}$/)) {
+        try {
+          const location = await Location.findById(locationRef);
+          return location ? location.name : 'Unknown Location';
+        } catch (error) {
+          console.error('Error fetching location:', error);
+          return 'Unknown Location';
+        }
+      }
+      
+      // Fallback
+      return locationRef || 'Office';
+    };
+
+    for (const record of attendanceRecords) {
+      const resolvedLocationName = await getLocationName(record.location, record.locationName);
+      
       // Validate and add check-in record
       if (record.checkIn) {
         const checkInDate = new Date(record.checkIn);
@@ -354,7 +406,7 @@ router.get('/me', authenticate, async (req, res) => {
             employeeId: record.employeeId,
             timestamp: checkInDate.toISOString(),
             type: 'check-in',
-            location: record.locationName || record.location,
+            location: resolvedLocationName,
             device: record.device,
             status: record.status
           });
@@ -373,7 +425,7 @@ router.get('/me', authenticate, async (req, res) => {
             employeeId: record.employeeId,
             timestamp: checkOutDate.toISOString(),
             type: 'check-out',
-            location: record.locationName || record.location,
+            location: resolvedLocationName,
             device: record.device,
             status: record.status
           });
@@ -381,7 +433,7 @@ router.get('/me', authenticate, async (req, res) => {
           console.warn('Invalid checkOut date for record:', record._id, record.checkOut);
         }
       }
-    });
+    }
     
     // Sort transformed records by timestamp (newest first)
     transformedRecords.sort((a, b) => {
@@ -447,16 +499,40 @@ router.get('/', authenticate, isAdmin, async (req, res) => {
       .sort({ date: -1, checkIn: -1 })
       .skip(skip)
       .limit(parseInt(limit));
-    
+      // Helper function to resolve location name
+    const getLocationName = async (locationRef, locationName) => {
+      // If locationName is already provided and is not an ObjectId, use it
+      if (locationName && typeof locationName === 'string' && 
+          !locationName.match(/^[0-9a-fA-F]{24}$/)) {
+        return locationName;
+      }
+      
+      // If location is an ObjectId, fetch the location name
+      if (locationRef && typeof locationRef === 'string' && 
+          locationRef.match(/^[0-9a-fA-F]{24}$/)) {
+        try {
+          const location = await Location.findById(locationRef);
+          return location ? location.name : 'Unknown Location';
+        } catch (error) {
+          console.error('Error fetching location:', error);
+          return 'Unknown Location';
+        }
+      }
+      
+      // Fallback
+      return locationRef || 'Office';
+    };
+
     // For recent activity (indicated by small limit), expand to show individual actions
     let transformedRecords;
     if (parseInt(limit) <= 10 && !filter.date) {
       // This looks like a recent activity request, expand each record into separate actions
       const expandedRecords = [];
       
-      attendanceRecords.forEach(record => {
+      for (const record of attendanceRecords) {
         const recordObj = record.toObject();
         recordObj.employee = recordObj.employeeId;
+        const resolvedLocationName = await getLocationName(recordObj.location, recordObj.locationName);
         
         // Add check-in action
         if (recordObj.checkIn) {
@@ -464,6 +540,7 @@ router.get('/', authenticate, isAdmin, async (req, res) => {
             ...recordObj,
             type: 'check-in',
             timestamp: recordObj.checkIn,
+            location: resolvedLocationName,
             _id: recordObj._id + '_checkin' // Unique identifier for the action
           });
         }
@@ -474,10 +551,11 @@ router.get('/', authenticate, isAdmin, async (req, res) => {
             ...recordObj,
             type: 'check-out',
             timestamp: recordObj.checkOut,
+            location: resolvedLocationName,
             _id: recordObj._id + '_checkout' // Unique identifier for the action
           });
         }
-      });
+      }
       
       // Sort by timestamp (most recent first) and limit to requested amount
       transformedRecords = expandedRecords
@@ -486,8 +564,11 @@ router.get('/', authenticate, isAdmin, async (req, res) => {
         
     } else {
       // For other requests, use single record per attendance with most recent action
-      transformedRecords = attendanceRecords.map(record => {
+      const processedRecords = [];
+      
+      for (const record of attendanceRecords) {
         const recordObj = record.toObject();
+        const resolvedLocationName = await getLocationName(recordObj.location, recordObj.locationName);
         
         // Determine the most recent action for this record
         if (recordObj.checkOut) {
@@ -502,9 +583,12 @@ router.get('/', authenticate, isAdmin, async (req, res) => {
         
         // For compatibility, also set the employee field
         recordObj.employee = recordObj.employeeId;
+        recordObj.location = resolvedLocationName;
         
-        return recordObj;
-      });
+        processedRecords.push(recordObj);
+      }
+      
+      transformedRecords = processedRecords;
     }
     
     // Get total count for pagination
@@ -683,6 +767,200 @@ router.get('/stats/summary', authenticate, isAdmin, async (req, res) => {
   }
 });
 
+// Get detailed attendance analytics (admin only)
+router.get('/stats/analytics', authenticate, isAdmin, async (req, res) => {
+  try {
+    const { startDate, endDate, employeeId, department, location } = req.query;
+    
+    // Build base filter
+    const baseFilter = {};
+    
+    // Apply date filter if provided
+    if (startDate || endDate) {
+      baseFilter.date = {};
+      if (startDate) baseFilter.date.$gte = new Date(startDate);
+      if (endDate) {
+        const endDateTime = new Date(endDate);
+        endDateTime.setHours(23, 59, 59, 999);
+        baseFilter.date.$lte = endDateTime;
+      }
+    }
+    
+    // Apply other filters if provided
+    if (employeeId) baseFilter.employeeId = employeeId;
+    if (location) baseFilter.location = location;
+    
+    // Get Employee model for department filtering
+    const Employee = require('../models/employee.model');
+    
+    // Get all attendance records matching filter
+    let attendanceQuery = Attendance.find(baseFilter)
+      .populate('employeeId', 'name employeeId email department position phoneNumber');
+      
+    // Apply department filter through population
+    if (department) {
+      const employeesInDept = await Employee.find({ department }).select('_id');
+      const employeeIds = employeesInDept.map(emp => emp._id);
+      baseFilter.employeeId = { $in: employeeIds };
+      attendanceQuery = Attendance.find(baseFilter)
+        .populate('employeeId', 'name employeeId email department position phoneNumber');
+    }
+    
+    const attendanceRecords = await attendanceQuery.sort({ date: -1, checkIn: -1 });
+    
+    // Calculate detailed analytics
+    const analytics = {
+      // Basic counts
+      totalRecords: attendanceRecords.length,
+      totalEmployees: new Set(attendanceRecords.map(r => r.employeeId?._id?.toString()).filter(Boolean)).size,
+      
+      // Status breakdown
+      onTimeCount: attendanceRecords.filter(r => r.status === 'onTime').length,
+      lateCount: attendanceRecords.filter(r => r.status === 'late').length,
+      
+      // Check-in/out analysis
+      totalCheckIns: attendanceRecords.filter(r => r.checkIn).length,
+      totalCheckOuts: attendanceRecords.filter(r => r.checkOut).length,
+      incompleteRecords: attendanceRecords.filter(r => r.checkIn && !r.checkOut).length,
+      
+      // Duration analysis
+      avgDuration: 0,
+      totalHours: 0,
+      overtimeHours: 0,
+      
+      // Time patterns
+      hourlyDistribution: {},
+      departmentStats: {},
+      locationStats: {},
+      dailyTrends: {},
+      
+      // Employee rankings
+      topPerformers: [],
+      frequentLateArrivals: []
+    };
+    
+    // Calculate duration statistics
+    const recordsWithDuration = attendanceRecords.filter(r => r.duration && r.duration > 0);
+    if (recordsWithDuration.length > 0) {
+      const totalMinutes = recordsWithDuration.reduce((sum, r) => sum + r.duration, 0);
+      analytics.avgDuration = Math.round(totalMinutes / recordsWithDuration.length);
+      analytics.totalHours = Math.round(totalMinutes / 60 * 100) / 100;
+      analytics.overtimeHours = recordsWithDuration
+        .filter(r => r.duration > 480) // More than 8 hours
+        .reduce((sum, r) => sum + Math.max(0, r.duration - 480), 0) / 60;
+    }
+    
+    // Hourly distribution analysis
+    attendanceRecords.forEach(record => {
+      if (record.checkIn) {
+        const hour = new Date(record.checkIn).getHours();
+        analytics.hourlyDistribution[hour] = (analytics.hourlyDistribution[hour] || 0) + 1;
+      }
+    });
+    
+    // Department statistics
+    attendanceRecords.forEach(record => {
+      const dept = record.employeeId?.department || 'Unknown';
+      if (!analytics.departmentStats[dept]) {
+        analytics.departmentStats[dept] = {
+          totalRecords: 0,
+          onTime: 0,
+          late: 0,
+          employees: new Set()
+        };
+      }
+      analytics.departmentStats[dept].totalRecords++;
+      analytics.departmentStats[dept].employees.add(record.employeeId?._id?.toString());
+      if (record.status === 'onTime') analytics.departmentStats[dept].onTime++;
+      if (record.status === 'late') analytics.departmentStats[dept].late++;
+    });
+    
+    // Convert Set to count for department stats
+    Object.keys(analytics.departmentStats).forEach(dept => {
+      analytics.departmentStats[dept].employees = analytics.departmentStats[dept].employees.size;
+    });
+    
+    // Location statistics
+    attendanceRecords.forEach(record => {
+      const location = record.locationName || record.location || 'Unknown';
+      analytics.locationStats[location] = (analytics.locationStats[location] || 0) + 1;
+    });
+    
+    // Daily trends
+    attendanceRecords.forEach(record => {
+      const date = new Date(record.date).toISOString().split('T')[0];
+      if (!analytics.dailyTrends[date]) {
+        analytics.dailyTrends[date] = {
+          checkIns: 0,
+          checkOuts: 0,
+          onTime: 0,
+          late: 0
+        };
+      }
+      if (record.checkIn) analytics.dailyTrends[date].checkIns++;
+      if (record.checkOut) analytics.dailyTrends[date].checkOuts++;
+      if (record.status === 'onTime') analytics.dailyTrends[date].onTime++;
+      if (record.status === 'late') analytics.dailyTrends[date].late++;
+    });
+    
+    // Employee performance analysis
+    const employeeStats = {};
+    attendanceRecords.forEach(record => {
+      const empId = record.employeeId?._id?.toString();
+      if (!empId) return;
+      
+      if (!employeeStats[empId]) {
+        employeeStats[empId] = {
+          name: record.employeeId.name,
+          employeeId: record.employeeId.employeeId,
+          department: record.employeeId.department,
+          totalRecords: 0,
+          onTime: 0,
+          late: 0,
+          totalHours: 0
+        };
+      }
+      
+      employeeStats[empId].totalRecords++;
+      if (record.status === 'onTime') employeeStats[empId].onTime++;
+      if (record.status === 'late') employeeStats[empId].late++;
+      if (record.duration) employeeStats[empId].totalHours += record.duration / 60;
+    });
+    
+    // Top performers (best punctuality)
+    analytics.topPerformers = Object.values(employeeStats)
+      .filter(emp => emp.totalRecords >= 5) // Minimum 5 records
+      .sort((a, b) => (b.onTime / b.totalRecords) - (a.onTime / a.totalRecords))
+      .slice(0, 10)
+      .map(emp => ({
+        name: emp.name,
+        employeeId: emp.employeeId,
+        department: emp.department,
+        punctualityRate: Math.round((emp.onTime / emp.totalRecords) * 100),
+        totalRecords: emp.totalRecords
+      }));
+    
+    // Frequent late arrivals
+    analytics.frequentLateArrivals = Object.values(employeeStats)
+      .filter(emp => emp.late > 0)
+      .sort((a, b) => b.late - a.late)
+      .slice(0, 10)
+      .map(emp => ({
+        name: emp.name,
+        employeeId: emp.employeeId,
+        department: emp.department,
+        lateCount: emp.late,
+        totalRecords: emp.totalRecords,
+        lateRate: Math.round((emp.late / emp.totalRecords) * 100)
+      }));
+    
+    res.json(analytics);
+  } catch (error) {
+    console.error('Get attendance analytics error:', error);
+    res.status(500).json({ message: 'Server error while fetching attendance analytics' });
+  }
+});
+
 // Export attendance data as CSV (admin only)
 router.get('/export', authenticate, isAdmin, async (req, res) => {
   try {
@@ -809,12 +1087,123 @@ router.get('/debug', authenticate, async (req, res) => {
         status: record.status
       }))
     };
-    
-    console.log('Debug info:', debugInfo);
+      console.log('Debug info:', debugInfo);
     res.json(debugInfo);
   } catch (error) {
     console.error('Debug route error:', error);
     res.status(500).json({ message: 'Debug error', error: error.message });
+  }
+});
+
+// Get employee details by attendance status (admin only)
+router.get('/details/:status', authenticate, isAdmin, async (req, res) => {
+  try {
+    const { status } = req.params;
+    const { startDate, endDate, date } = req.query;
+    
+    // Validate status parameter
+    const validStatuses = ['onTime', 'late', 'absent', 'present'];
+    if (!validStatuses.includes(status)) {
+      return res.status(400).json({ 
+        message: `Invalid status. Must be one of: ${validStatuses.join(', ')}` 
+      });
+    }
+
+    // Build date filter
+    let dateFilter = {};
+    if (date) {
+      // For a specific date
+      const targetDate = new Date(date);
+      const startOfDay = new Date(targetDate.setHours(0, 0, 0, 0));
+      const endOfDay = new Date(targetDate.setHours(23, 59, 59, 999));
+      dateFilter = { $gte: startOfDay, $lte: endOfDay };
+    } else if (startDate || endDate) {
+      // For a date range
+      if (startDate) dateFilter.$gte = new Date(startDate);
+      if (endDate) {
+        const endDateTime = new Date(endDate);
+        endDateTime.setHours(23, 59, 59, 999);
+        dateFilter.$lte = endDateTime;
+      }
+    } else {
+      // Default to today
+      const today = new Date();
+      const startOfDay = new Date(today.setHours(0, 0, 0, 0));
+      const endOfDay = new Date(today.setHours(23, 59, 59, 999));
+      dateFilter = { $gte: startOfDay, $lte: endOfDay };
+    }
+
+    const Employee = require('../models/employee.model');
+
+    if (status === 'absent') {
+      // For absent employees, we need to find employees who didn't check in
+      const presentEmployeeIds = await Attendance.find({
+        date: dateFilter,
+        checkIn: { $exists: true, $ne: null }
+      }).distinct('employeeId');
+
+      const absentEmployees = await Employee.find({
+        _id: { $nin: presentEmployeeIds },
+        status: 'active' // Only include active employees
+      }).select('name employeeId email department position phoneNumber').lean();
+
+      return res.json({
+        status: 'absent',
+        count: absentEmployees.length,
+        employees: absentEmployees.map(emp => ({
+          ...emp,
+          checkIn: null,
+          checkOut: null,
+          duration: null,
+          location: null,
+          attendanceStatus: 'absent'
+        }))
+      });
+    }
+
+    // For other statuses, find attendance records
+    const filter = {
+      date: dateFilter
+    };
+
+    if (status === 'present') {
+      // All employees who checked in
+      filter.checkIn = { $exists: true, $ne: null };
+    } else {
+      // Specific status (onTime, late)
+      filter.status = status;
+      filter.checkIn = { $exists: true, $ne: null };
+    }
+
+    const attendanceRecords = await Attendance.find(filter)
+      .populate('employeeId', 'name employeeId email department position phoneNumber')
+      .sort({ checkIn: -1 })
+      .lean();
+
+    const employees = attendanceRecords.map(record => ({
+      _id: record.employeeId._id,
+      name: record.employeeId.name,
+      employeeId: record.employeeId.employeeId,
+      email: record.employeeId.email,
+      department: record.employeeId.department,
+      position: record.employeeId.position,
+      phoneNumber: record.employeeId.phoneNumber,
+      checkIn: record.checkIn,
+      checkOut: record.checkOut,
+      duration: record.duration,
+      location: record.locationName || record.location,
+      attendanceStatus: record.status
+    }));
+
+    res.json({
+      status,
+      count: employees.length,
+      employees
+    });
+
+  } catch (error) {
+    console.error('Get employee details by status error:', error);
+    res.status(500).json({ message: 'Server error while fetching employee details' });
   }
 });
 

@@ -5,15 +5,20 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "start-https": "set USE_HTTPS=true&&node server.js",
+    "start-windows": "set HOST=0.0.0.0&&node server.js",
+    "start-https": "set USE_HTTPS=true&&set HOST=0.0.0.0&&node server.js",
     "dev": "set HOST=0.0.0.0&&nodemon server.js",
-    "dev-https": "set USE_HTTPS=true&&nodemon server.js",
-    "test": "jest"
+    "dev-https": "set USE_HTTPS=true&&set HOST=0.0.0.0&&nodemon server.js",
+    "test": "jest",
+    "vercel-build": "npm install"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "type": "commonjs",
+  "engines": {
+    "node": ">=16.0.0"
+  },
   "dependencies": {
     "axios": "^1.9.0",
     "bcrypt": "^5.1.1",

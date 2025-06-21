@@ -1,0 +1,30 @@
+{
+  "name": "attend-app",
+  "description": "QR Code Attendance Tracking System",
+  "repository": "https://github.com/your-username/attend-app",
+  "logo": "https://assets.vercel.com/image/upload/front/favicon/vercel/152x152.png",
+  "success_url": "/",
+  "env": {
+    "MONGODB_URI": {
+      "description": "MongoDB Atlas connection string",
+      "value": "mongodb+srv://username:password@cluster.mongodb.net/attend"
+    },
+    "JWT_SECRET": {
+      "description": "Secret key for JWT tokens (generate a strong one)",
+      "value": "your-super-secret-jwt-key-here"
+    },
+    "NODE_ENV": {
+      "description": "Environment mode",
+      "value": "production"
+    },
+    "CORS_ORIGIN": {
+      "description": "Frontend domain for CORS (will be auto-filled after deployment)",
+      "value": "https://your-app.vercel.app"
+    }
+  },
+  "build": {
+    "env": {
+      "NODE_ENV": "production"
+    }
+  }
+}
