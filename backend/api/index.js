@@ -99,8 +99,8 @@ const connectToDatabase = async () => {
   }
 };
 
-// Middleware to ensure database connection
-app.use(async (req, res, next) => {
+// Middleware to ensure database connection (only for routes that need it)
+const ensureDatabaseConnection = async (req, res, next) => {
   try {
     await connectToDatabase();
     next();
@@ -114,9 +114,9 @@ app.use(async (req, res, next) => {
       mongoUri: process.env.MONGODB_URI ? 'Set' : 'Not set'
     });
   }
-});
+};
 
-// Health check endpoint
+// Health check endpoint - no database required
 app.get('/api/health', (req, res) => {
   res.header('Access-Control-Allow-Origin', req.headers.origin || '*');
   res.header('Access-Control-Allow-Credentials', 'true');
@@ -126,14 +126,41 @@ app.get('/api/health', (req, res) => {
     timestamp: new Date().toISOString(),
     server: 'Attend Backend API (Vercel)',
     version: '1.0.0',
-    mongodb: isConnected ? 'connected' : 'disconnected',
+    mongodb: 'connecting...',
     env: {
       nodeEnv: process.env.NODE_ENV,
       mongoUri: process.env.MONGODB_URI ? 'configured' : 'missing',
       jwtSecret: process.env.JWT_SECRET ? 'configured' : 'missing',
       corsOrigin: process.env.CORS_ORIGIN || 'not set'
+    },
+    cors: {
+      origin: req.headers.origin,
+      userAgent: req.headers['user-agent']
     }
   });
+});
+
+// Database health check endpoint
+app.get('/api/health/db', async (req, res) => {
+  try {
+    await connectToDatabase();
+    res.header('Access-Control-Allow-Origin', req.headers.origin || '*');
+    res.header('Access-Control-Allow-Credentials', 'true');
+    res.json({
+      status: 'ok',
+      mongodb: isConnected ? 'connected' : 'disconnected',
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    res.header('Access-Control-Allow-Origin', req.headers.origin || '*');
+    res.header('Access-Control-Allow-Credentials', 'true');
+    res.status(500).json({
+      status: 'error',
+      mongodb: 'connection failed',
+      error: error.message,
+      timestamp: new Date().toISOString()
+    });
+  }
 });
 
 // Root route
@@ -145,12 +172,12 @@ app.get('/', (req, res) => {
   });
 });
 
-// API Routes
-app.use('/api/auth', authRoutes);
-app.use('/api/employees', employeeRoutes);
-app.use('/api/attendance', attendanceRoutes);
-app.use('/api/qrcodes', qrCodeRoutes);
-app.use('/api/locations', locationRoutes);
+// API Routes - with database middleware
+app.use('/api/auth', ensureDatabaseConnection, authRoutes);
+app.use('/api/employees', ensureDatabaseConnection, employeeRoutes);
+app.use('/api/attendance', ensureDatabaseConnection, attendanceRoutes);
+app.use('/api/qrcodes', ensureDatabaseConnection, qrCodeRoutes);
+app.use('/api/locations', ensureDatabaseConnection, locationRoutes);
 
 // Error handling middleware
 app.use((err, req, res, next) => {
