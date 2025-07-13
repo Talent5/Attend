@@ -3,6 +3,7 @@ const router = express.Router();
 const Attendance = require('../models/attendance.model');
 const QRCode = require('../models/qrcode.model');
 const Location = require('../models/location.model');
+const Employee = require('../models/employee.model');
 const { authenticate, isAdmin } = require('../middlewares/auth.middleware');
 
 // Log attendance (scan QR code)
@@ -220,14 +221,14 @@ router.post('/', authenticate, async (req, res) => {  try {
         
         io.emit('attendance:updated', populatedAttendance);
       }
-      
-      res.status(200).json({
+        res.status(200).json({
         message: 'Check-out recorded successfully',
         timestamp: checkInRecord.checkOut,
         duration: durationMinutes,
         type: 'check-out',
         location: checkoutLocationName
-      });} else {
+      });
+    } else {
       return res.status(400).json({ 
         message: `Invalid attendance type '${attendanceType}'. Must be check-in or check-out.`,
         detectedType: attendanceType
@@ -1206,5 +1207,114 @@ router.get('/details/:status', authenticate, isAdmin, async (req, res) => {
     res.status(500).json({ message: 'Server error while fetching employee details' });
   }
 });
+
+// Get personal attendance statistics
+router.get('/me/stats', authenticate, async (req, res) => {
+  try {
+    const employeeId = req.employee._id;
+    
+    // Get current date for filtering
+    const now = new Date();
+    const currentYear = now.getFullYear();
+    const currentMonth = now.getMonth();
+    
+    // Get all attendance records for the current year
+    const yearStart = new Date(currentYear, 0, 1);
+    const yearEnd = new Date(currentYear, 11, 31, 23, 59, 59, 999);
+    
+    const attendanceRecords = await Attendance.find({
+      employeeId,
+      date: {
+        $gte: yearStart,
+        $lte: yearEnd
+      }
+    }).lean();
+    
+    // Calculate statistics
+    let presentDays = 0;
+    let lateDays = 0;
+    let onTimeDays = 0;
+    let totalWorkingHours = 0;
+    
+    attendanceRecords.forEach(record => {
+      if (record.checkIn) {
+        presentDays++;
+        
+        if (record.status === 'late') {
+          lateDays++;
+        } else if (record.status === 'on-time') {
+          onTimeDays++;
+        }
+        
+        if (record.duration) {
+          totalWorkingHours += record.duration / 60; // Convert minutes to hours
+        }
+      }
+    });
+    
+    // Calculate working days in current year (excluding weekends)
+    const totalWorkingDays = calculateWorkingDays(yearStart, yearEnd);
+    const absences = Math.max(0, totalWorkingDays - presentDays);
+    const onTimeRate = presentDays > 0 ? Math.round((onTimeDays / presentDays) * 100) : 0;
+    
+    // Get current month stats
+    const monthStart = new Date(currentYear, currentMonth, 1);
+    const monthEnd = new Date(currentYear, currentMonth + 1, 0, 23, 59, 59, 999);
+    
+    const monthlyRecords = attendanceRecords.filter(record => 
+      record.date >= monthStart && record.date <= monthEnd
+    );
+    
+    const monthlyPresentDays = monthlyRecords.filter(record => record.checkIn).length;
+    const monthlyWorkingDays = calculateWorkingDays(monthStart, monthEnd);
+    const monthlyAbsences = Math.max(0, monthlyWorkingDays - monthlyPresentDays);
+    
+    const stats = {
+      // Overall stats
+      presentDays,
+      absences,
+      onTimeRate,
+      lateDays,
+      totalWorkingHours: Math.round(totalWorkingHours),
+      averageHoursPerDay: presentDays > 0 ? Math.round(totalWorkingHours / presentDays * 10) / 10 : 0,
+      
+      // Monthly stats
+      monthly: {
+        presentDays: monthlyPresentDays,
+        absences: monthlyAbsences,
+        workingDays: monthlyWorkingDays
+      },
+      
+      // Additional info
+      totalWorkingDays,
+      year: currentYear,
+      month: currentMonth + 1,
+      lastUpdated: new Date()
+    };
+    
+    res.json(stats);
+  } catch (error) {
+    console.error('Get personal stats error:', error);
+    res.status(500).json({ message: 'Server error while fetching personal statistics' });
+  }
+});
+
+// Helper function to calculate working days (excluding weekends)
+function calculateWorkingDays(startDate, endDate) {
+  let count = 0;
+  const current = new Date(startDate);
+  
+  while (current <= endDate) {
+    const dayOfWeek = current.getDay();
+    if (dayOfWeek !== 0 && dayOfWeek !== 6) { // Not Sunday (0) or Saturday (6)
+      count++;
+    }
+    current.setDate(current.getDate() + 1);
+  }
+  
+  return count;
+}
+
+// Get personal monthly attendance
 
 module.exports = router;

@@ -36,6 +36,14 @@ const EmployeeSchema = new mongoose.Schema({
     type: String,
     trim: true
   },
+  phone: {
+    type: String,
+    trim: true
+  },
+  address: {
+    type: String,
+    trim: true
+  },
   joinDate: {
     type: Date,
     default: Date.now
@@ -43,8 +51,7 @@ const EmployeeSchema = new mongoose.Schema({
   profileImage: {
     type: String,
     default: ''
-  },
-  isActive: {
+  },  isActive: {
     type: Boolean,
     default: true
   },

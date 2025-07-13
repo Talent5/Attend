@@ -144,8 +144,12 @@ app.use('/api/qrcodes', qrLimiter, qrCodeRoutes);
 app.use('/api/locations', apiLimiter, locationRoutes);
 
 // Import and use the network routes with detailed diagnostics
-const networkRoutes = require('./routes/network.routes');
-app.use('/api', networkRoutes);
+try {
+  const networkRoutes = require('./routes/network.routes');
+  app.use('/api/network', networkRoutes);
+} catch (error) {
+  console.error('Failed to load network routes:', error);
+}
 
 // Root route
 app.get('/', (req, res) => {
@@ -154,7 +158,13 @@ app.get('/', (req, res) => {
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', timestamp: new Date().toISOString() });
+  res.json({ 
+    status: 'ok', 
+    service: 'attendance-system',
+    timestamp: new Date().toISOString(),
+    server: 'Attend Backend API',
+    version: '1.0.0'
+  });
 });
 
 // Handle HEAD requests to /api

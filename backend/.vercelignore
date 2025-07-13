@@ -1,0 +1,9 @@
+node_modules
+.env
+.env.local
+.env.production
+.git
+.gitignore
+README.md
+qrcodes/*
+!qrcodes/.gitkeep

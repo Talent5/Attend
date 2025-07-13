@@ -1,4 +1,4 @@
-# Attend - QR Code Attendance Tracking System
+# Attend - QR Code Attendance System
 
 A modern attendance tracking system using QR codes for seamless check-ins and check-outs with comprehensive administration tools.
 
@@ -6,36 +6,36 @@ A modern attendance tracking system using QR codes for seamless check-ins and ch
 
 ## Overview
 
-Attend is a full-stack web application designed to streamline attendance tracking in organizations. The system uses QR codes for quick and easy attendance recording, with real-time tracking, reporting, and analytics features.
+Attend is a full-stack web application designed to streamline attendance tracking in organizations. The system supports QR code scanning for flexible attendance recording, with real-time tracking, reporting, and analytics features.
 
 ## Features
 
 ### Employee Features
-- **QR Code Scanning**: Quick check-in/check-out via smartphone camera
-- **Manual Entry Option**: Alternative check-in method when QR scanning isn't possible
-- **Location-based Attendance**: Records location data with each scan
-- **Attendance History**: View personal attendance records with filtering options
-- **Profile Management**: Edit personal information and view attendance stats
-- **Real-time Status**: Instant confirmation of attendance status
+- **📱 QR Code Scanning**: Quick check-in/check-out via smartphone camera
+- **✏️ Manual Entry Option**: Alternative check-in method when QR scanning isn't possible
+- **📍 Location-based Attendance**: Records location data with each authentication
+- **📊 Attendance History**: View personal attendance records with filtering options
+- **👤 Profile Management**: Edit personal information and view attendance stats
+- **⚡ Real-time Status**: Instant confirmation of attendance status
 
 ### Admin Features
-- **Dashboard Overview**: At-a-glance view of attendance statistics and recent activity
-- **QR Code Management**: Generate, activate/deactivate, and delete QR codes for different locations
-- **Employee Management**: Add, edit, and manage employee profiles
-- **Location Management**: Create and manage multiple locations for attendance tracking
-- **Attendance Monitoring**: View and filter attendance records by date, employee, location
-- **Reports & Analytics**: View attendance statistics, trends, and generate reports
-- **System Settings**: Configure attendance rules, notifications, and other system settings
+- **📈 Dashboard Overview**: At-a-glance view of attendance statistics and recent activity
+- ** QR Code Management**: Generate, activate/deactivate, and delete QR codes for different locations
+- **👥 Employee Management**: Add, edit, and manage employee profiles
+- **🏢 Location Management**: Create and manage multiple locations for attendance tracking
+- **🔍 Attendance Monitoring**: View and filter attendance records by date, employee, location
+- **📋 Reports & Analytics**: View attendance statistics, trends, and generate comprehensive reports
+- **⚙️ System Settings**: Configure attendance rules and notifications
 
 ### Technical Features
-- **Real-time Updates**: Socket.io integration for live attendance updates
-- **Network Auto-Detection**: Smart IP address detection for seamless connectivity across different networks
-- **Cross-Network Compatibility**: Works across different devices on the same network with minimal configuration
-- **Responsive UI**: Works on desktop and mobile devices
-- **Secure Authentication**: JWT-based authentication with role-based access control
-- **Data Export**: Export attendance data to CSV for further analysis
-- **Customizable Settings**: Configure QR code validity, late check-in thresholds, etc.
-- **Dark/Light Mode**: Support for system theme preferences
+- **🔄 Real-time Updates**: Socket.io integration for live attendance updates
+- **🌐 Network Auto-Detection**: Smart IP address detection for seamless connectivity across different networks
+- **🔗 Cross-Network Compatibility**: Works across different devices on the same network with minimal configuration
+- **📱 Responsive UI**: Works on desktop and mobile devices
+- **🔒 Secure Authentication**: JWT-based authentication with role-based access control
+- **📊 Data Export**: Export attendance data to CSV for further analysis
+- **⚙️ Customizable Settings**: Configure attendance rules and late check-in thresholds
+- **🌙 Dark/Light Mode**: Support for system theme preferences
 
 ## Tech Stack
 
@@ -130,11 +130,12 @@ The application follows a client-server architecture:
 
 The main entities in the system are:
 
-1. **Employee**: User accounts with roles (admin/employee)
-2. **Attendance**: Check-in/check-out records linked to employees and QR codes
-3. **QRCode**: Generated QR codes with validity periods
-4. **Location**: Physical locations where attendance is tracked
-5. **Settings**: System-wide configuration options
+1. **Employee**: User accounts with roles (admin/employee) and fingerprint enrollment status
+2. **Attendance**: Check-in/check-out records linked to employees, QR codes, or fingerprint IDs
+3. **QRCode**: Generated QR codes with validity periods (legacy support)
+4. **Fingerprint**: Biometric registration linking fingerprint IDs to employees
+5. **Location**: Physical locations where attendance is tracked
+6. **Settings**: System-wide configuration options
 
 ## API Endpoints
 

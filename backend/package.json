@@ -10,7 +10,11 @@
     "dev": "set HOST=0.0.0.0&&nodemon server.js",
     "dev-https": "set USE_HTTPS=true&&set HOST=0.0.0.0&&nodemon server.js",
     "test": "jest",
-    "vercel-build": "npm install"
+    "vercel-build": "npm install",
+    "deploy": "vercel --prod",
+    "deploy-dev": "vercel",
+    "create-admin": "node create-super-admin.js",
+    "check-admin": "node check-admin.js"
   },
   "keywords": [],
   "author": "",
@@ -20,7 +24,7 @@
     "node": ">=16.0.0"
   },
   "dependencies": {
-    "axios": "^1.9.0",
+    "axios": "^1.10.0",
     "bcrypt": "^5.1.1",
     "bcryptjs": "^3.0.2",
     "cors": "^2.8.5",

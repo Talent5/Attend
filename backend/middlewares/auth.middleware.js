@@ -18,9 +18,10 @@ exports.authenticate = async (req, res, next) => {
     
     // Verify token
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    
-    // Find employee by id
+      // Find employee by id
     const employee = await Employee.findById(decoded.id).select('-password');
+    
+    console.log('🔍 Auth check - Found employee:', employee?.name, 'Role:', employee?.role, 'Active:', employee?.isActive);
     
     if (!employee) {
       return res.status(404).json({ message: 'Employee not found' });
@@ -49,9 +50,13 @@ exports.authenticate = async (req, res, next) => {
 
 // Middleware to check if user is admin
 exports.isAdmin = (req, res, next) => {
+  console.log('🔐 Admin check - User:', req.employee?.name, 'Role:', req.employee?.role);
+  
   if (req.employee && (req.employee.role === 'admin' || req.employee.role === 'super_admin')) {
+    console.log('✅ Admin check passed');
     next();
   } else {
+    console.log('❌ Admin check failed - Role:', req.employee?.role);
     res.status(403).json({ message: 'Access denied. Admin privileges required.' });
   }
 };

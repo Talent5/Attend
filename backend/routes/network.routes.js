@@ -7,7 +7,7 @@ const os = require('os');
  * @desc Test network connectivity
  * @access Public
  */
-router.get('/network-test', (req, res) => {
+router.get('/test', (req, res) => {
   try {
     // Get network interfaces for debugging
     const getNetworkIPs = () => {
@@ -63,6 +63,25 @@ router.get('/network-test', (req, res) => {
       error: error.message
     });
   }
+});
+
+/**
+ * @route GET /api/network-test
+ * @desc Simple network connectivity test
+ * @access Public
+ */
+router.get('/network-test', (req, res) => {
+  res.json({
+    status: "success",
+    message: "Network connection successful",
+    timestamp: new Date().toISOString(),
+    server: "Attend Backend API"
+  });
+});
+
+// Alternative route for HEAD requests
+router.head('/network-test', (req, res) => {
+  res.status(200).end();
 });
 
 module.exports = router;

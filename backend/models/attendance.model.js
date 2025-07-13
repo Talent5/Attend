@@ -25,10 +25,15 @@ const AttendanceSchema = new mongoose.Schema({
   location: {
     type: String,
     required: true
-  },
-  qrCodeId: {
+  },  qrCodeId: {
     type: String,
-    ref: 'QRCode'
+    ref: 'QRCode',
+    default: null
+  },
+  authMethod: {
+    type: String,
+    enum: ['qr', 'manual'],
+    default: 'qr'
   },
   coordinates: {
     latitude: {

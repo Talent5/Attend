@@ -134,55 +134,30 @@ router.post('/', authenticate, isAdmin, validateEmail, async (req, res) => {
   }
 });
 
-// Update employee (admin or self)
-router.put('/:id', authenticate, async (req, res) => {
+// Update own profile (for employees)
+router.put('/profile/me', authenticate, async (req, res) => {
   try {
-    // Regular employees can only update their own non-sensitive info
-    if (req.employee.role !== 'admin' && req.employee.role !== 'super_admin' && req.employee._id.toString() !== req.params.id) {
-      return res.status(403).json({ message: 'Access denied' });
-    }
+    const updateData = req.body;
     
-    // If email is being updated, validate it
-    if (req.body.email) {
-      // Check if email is well-formed
-      const emailValidator = require('email-validator');
-      if (!emailValidator.validate(req.body.email)) {
-        return res.status(400).json({ message: 'Please enter a valid email address' });
+    // Only allow updating specific fields for profile updates
+    const allowedFields = ['name', 'phone', 'phoneNumber', 'address', 'department', 'position'];
+    const filteredData = {};
+    
+    allowedFields.forEach(field => {
+      if (updateData[field] !== undefined) {
+        filteredData[field] = updateData[field];
       }
-      
-      // Check if email is already in use by another employee
-      const existingEmployee = await Employee.findOne({
-        email: req.body.email,
-        _id: { $ne: req.params.id } // Exclude current employee
-      });
-      
-      if (existingEmployee) {
-        return res.status(400).json({ message: 'This email is already in use by another employee' });
-      }
-    }
+    });
     
-    // If not admin or super_admin, restrict which fields can be updated
-    let updateData = req.body;
+    // Remove sensitive fields that shouldn't be updated directly
+    delete filteredData.password;
+    delete filteredData.role;
+    delete filteredData.isActive;
+    delete filteredData.email;
     
-    if (req.employee.role !== 'admin' && req.employee.role !== 'super_admin') {
-      const allowedFields = ['name', 'phoneNumber', 'profileImage'];
-      updateData = Object.keys(updateData)
-        .filter(key => allowedFields.includes(key))
-        .reduce((obj, key) => {
-          obj[key] = updateData[key];
-          return obj;
-        }, {});
-    }
-    
-    // Prevent password from being updated through this route
-    if (updateData.password) {
-      delete updateData.password;
-    }
-    
-    // Update employee
     const employee = await Employee.findByIdAndUpdate(
-      req.params.id,
-      { $set: updateData },
+      req.employee._id,
+      filteredData,
       { new: true, runValidators: true }
     ).select('-password');
     
@@ -190,16 +165,78 @@ router.put('/:id', authenticate, async (req, res) => {
       return res.status(404).json({ message: 'Employee not found' });
     }
     
-    // Emit socket event for real-time updates
-    const io = req.app.get('io');
-    if (io) {
-      io.emit('employee:updated', {
-        _id: employee._id,
-        name: employee.name,
-        department: employee.department,
-        role: employee.role,
-        isActive: employee.isActive
-      });
+    res.json({
+      message: 'Profile updated successfully',
+      employee
+    });
+  } catch (error) {
+    console.error('Update profile error:', error);
+    res.status(500).json({ message: 'Server error while updating profile' });
+  }
+});
+
+// Change own password (for employees)
+router.put('/profile/password', authenticate, async (req, res) => {
+  try {
+    const { currentPassword, newPassword } = req.body;
+    
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({ message: 'Current password and new password are required' });
+    }
+    
+    if (newPassword.length < 6) {
+      return res.status(400).json({ message: 'New password must be at least 6 characters long' });
+    }
+    
+    // Find the employee
+    const employee = await Employee.findById(req.employee._id);
+    if (!employee) {
+      return res.status(404).json({ message: 'Employee not found' });
+    }
+    
+    // Verify current password
+    const isCurrentPasswordValid = await employee.comparePassword(currentPassword);
+    if (!isCurrentPasswordValid) {
+      return res.status(400).json({ message: 'Current password is incorrect' });
+    }
+    
+    // Update password
+    employee.password = newPassword;
+    await employee.save();
+    
+    res.json({ message: 'Password updated successfully' });
+  } catch (error) {
+    console.error('Change password error:', error);
+    res.status(500).json({ message: 'Server error while changing password' });
+  }
+});
+
+// Update employee (admin only)
+router.put('/:id', authenticate, isAdmin, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const updateData = req.body;
+    
+    // Remove sensitive fields that shouldn't be updated directly
+    delete updateData.password;
+    delete updateData.role; // Role updates should go through separate endpoint
+    
+    // Find the current employee to check if status is changing
+    const currentEmployee = await Employee.findById(id);
+    if (!currentEmployee) {
+      return res.status(404).json({ message: 'Employee not found' });
+    }
+    
+    // Update the employee with new data
+    
+    const employee = await Employee.findByIdAndUpdate(
+      id,
+      updateData,
+      { new: true, runValidators: true }
+    ).select('-password');
+    
+    if (!employee) {
+      return res.status(404).json({ message: 'Employee not found' });
     }
     
     res.json({
@@ -208,6 +245,9 @@ router.put('/:id', authenticate, async (req, res) => {
     });
   } catch (error) {
     console.error('Update employee error:', error);
+    if (error.code === 11000) {
+      return res.status(400).json({ message: 'Email already exists' });
+    }
     res.status(500).json({ message: 'Server error while updating employee' });
   }
 });
